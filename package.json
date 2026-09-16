@@ -1,0 +1,46 @@
+{
+  "name": "ack-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing Agent Commerce Kit (ACK) operations — identity, payments, credentials, and DIDs — as tools for AI agents",
+  "homepage": "https://github.com/ak68a/ack-mcp#readme",
+  "bugs": "https://github.com/ak68a/ack-mcp/issues",
+  "license": "MIT",
+  "author": "ak68a",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ak68a/ack-mcp.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    }
+  },
+  "bin": {
+    "ack-mcp": "./dist/index.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "start": "tsx ./src/index.ts",
+    "test": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "agentcommercekit": "0.11.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.14",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
