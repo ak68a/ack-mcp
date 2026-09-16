@@ -54,15 +54,61 @@ re-issuance mechanism.
 - **Resolver** — any party that verifies dispute evidence. May be
   human, automated, or a combination.
 
-## 3. The dispute evidence artifact
+## 3. Evidence trail
 
-A dispute evidence artifact is a JWS compact serialization
-(`dispute+jwt`) signed by the disputant (the grant issuer). Its
-payload carries:
+The dispute evidence artifact binds three signed objects into one
+verifiable chain. A resolver walks the chain left to right; each
+arrow is a cryptographic binding (signature or artifact reference):
 
-```json
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    dispute+jwt                               │
+│  signed by: disputant (owner)                                │
+│                                                              │
+│  ┌─────────────┐   grant_ref    ┌─────────────┐             │
+│  │  grant+jwt   │◄──(SHA-256)───│  ack.grant   │            │
+│  │              │               │  in receipt   │            │
+│  │  iss: owner  │               │              ┌┘            │
+│  │  sub: agent  │               │  receipt+jwt  │            │
+│  │  constraints │               │              ┌┘            │
+│  │  aud, scope  │               │  amount      │             │
+│  │  exp         │               │  recipient   │             │
+│  └──────────────┘               │  ack.agent   │             │
+│                                 └──────────────┘             │
+│         ▲                              ▲                     │
+│         │                              │                     │
+│     ┌───┴───────────────────────┴──┐                         │
+│     │         delta[]              │                         │
+│     │  field: constraints.maxAmount│                         │
+│     │  authorized: "10000"  ◄─grant│                         │
+│     │  actual:     "45000"  ◄─receipt                        │
+│     └──────────────────────────────┘                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The `grant_ref` binds by content (SHA-256 of the grant's compact
+serialization, matching the receipt's `ack.grant`). The `receipt_ref`
+binds by content (SHA-256 of the receipt's compact serialization).
+Both the grant and receipt are embedded in full, so a resolver need
+not fetch anything — the evidence is self-contained.
+
+## 4. The dispute evidence artifact
+
+A dispute evidence artifact is a JWS compact serialization signed by
+the disputant (the grant issuer). The protected header carries
+`typ: "dispute+jwt"` (per RFC 7515 §4.1.9, following core's
+convention for artifact-typed JWTs). The payload carries:
+
+```
+-- Protected header --
 {
+  "alg": "EdDSA",
   "typ": "dispute+jwt",
+  "kid": "<disputant's key thumbprint>"
+}
+
+-- Payload --
+{
   "iss": "did:web:acme.com",
   "sub": "did:web:acme.com:shopper",
   "iat": 1726531200,
@@ -88,30 +134,36 @@ payload carries:
 
 The example is non-normative. The normative claim table follows.
 
-### 3.1 Claims
+### 3.1 Header
+
+| Parameter | Requiredness | Rule |
+|---|---|---|
+| `typ` | REQUIRED | MUST be `dispute+jwt`. |
+| `kid` | REQUIRED | The disputant's key thumbprint (JWK Thumbprint, RFC 7638). |
+
+### 3.2 Payload claims
 
 | Claim | Requiredness | Rule |
 |---|---|---|
-| `typ` | REQUIRED | MUST be `dispute+jwt`. |
 | `iss` | REQUIRED | The disputant's identity (an HTTPS URL). MUST match the grant's `iss`. |
 | `sub` | REQUIRED | The agent's identity. MUST match the grant's `sub` and the receipt's `ack.agent`. |
 | `iat` | REQUIRED | When the dispute was filed. |
 | `exp` | REQUIRED | Evidence expiry. A resolver MUST reject expired evidence. SHOULD be no more than 90 days after `iat`. |
 | `jti` | REQUIRED | Unique identifier for this dispute. |
-| `reason` | REQUIRED | A reason code from the registry (Section 4). |
+| `reason` | REQUIRED | A reason code from the registry (Section 5). |
 | `grant_ref` | REQUIRED | Artifact reference to the grant: SHA-256 of the grant JWT's compact serialization, base64url-encoded. MUST match the `ack.grant` value in the receipt. |
 | `receipt_ref` | REQUIRED | Artifact reference to the receipt: SHA-256 of the receipt JWS compact serialization, base64url-encoded. |
-| `evidence` | REQUIRED | Object containing `grant`, `receipt`, and `delta` (Section 3.2). |
+| `evidence` | REQUIRED | Object containing `grant`, `receipt`, and `delta` (Section 4.3). |
 
-### 3.2 Evidence object
+### 3.3 Evidence object
 
 | Field | Requiredness | Rule |
 |---|---|---|
 | `evidence.grant` | REQUIRED | The full grant JWT compact serialization. Its SHA-256 MUST match `grant_ref`. |
 | `evidence.receipt` | REQUIRED | The full receipt JWS compact serialization. Its SHA-256 MUST match `receipt_ref`. |
-| `evidence.delta` | REQUIRED | Array of one or more delta entries (Section 3.3). |
+| `evidence.delta` | REQUIRED | Array of one or more delta entries (Section 4.4). |
 
-### 3.3 Delta entries
+### 3.4 Delta entries
 
 Each delta entry describes one constraint violation:
 
@@ -128,23 +180,45 @@ embedded grant and receipt. A delta entry that does not match the
 embedded artifacts is evidence of a fabricated dispute, and the
 resolver MUST reject the entire artifact.
 
-## 4. Reason code registry
+## 5. Reason code registry
 
 | Code | When to use | Required delta fields |
 |---|---|---|
-| `scope-exceeded` | The action violated one or more grant constraints (amount, category, recipient). | `field` referencing the constraint, `authorized`, `actual`. |
+| `scope-exceeded` | The action violated a mechanically verifiable grant constraint — amount, recipient, or any constraint whose value appears in both the grant and the receipt's embedded payment request. | `field` referencing the constraint, `authorized`, `actual`. |
 | `grant-expired` | The grant's `exp` had passed at the time the receipt was issued. | `field` = `exp`, `authorized` = grant `exp`, `actual` = receipt `iat`. |
 | `audience-mismatch` | The payment went to a counterparty not named in the grant's `aud`. | `field` = `aud`, `authorized` = grant `aud`, `actual` = receipt recipient. |
-| `no-grant` | No grant existed for this agent and action. The receipt's `ack.grant` is absent or references a grant the disputant never issued. | `field` = `ack.grant`, `actual` = receipt `ack.grant` or `"absent"`. `authorized` omitted. |
+| `unauthorized-agent` | The receipt's `ack.agent` names an agent the disputant did not grant. The disputant MUST embed a valid grant they did issue (to prove they are the owner) and the receipt that names the wrong agent. | `field` = `sub`, `authorized` = grant `sub`, `actual` = receipt `ack.agent`. |
 | `revoked-grant` | The grant was revoked (key removal, `jti` revocation) before the payment. | `field` = `jti` or key reference, `authorized` = revocation timestamp, `actual` = receipt `iat`. |
-| `category-mismatch` | The purchase category falls outside the grant's `constraints.category` or `scope`. | `field` = `constraints.category` or `scope`, `authorized`, `actual`. |
+
+### 5.1 Codes intentionally omitted
+
+**Category mismatch.** An earlier draft included `category-mismatch`
+for purchases outside the grant's `constraints.category`. This was
+removed because the receipt does not carry a category field — the
+resolver cannot mechanically verify what category a purchase belongs
+to. Category disputes require human judgment and belong in the
+resolution layer, not in machine-verifiable evidence.
+
+**No grant.** An earlier draft included `no-grant` for receipts where
+`ack.grant` is absent. This was removed because without an `ack`
+binding the receipt "attributes payment to no one" (pay core
+Section 4) — there is nothing to bind the dispute to. If the
+disputant believes their agent paid without authorization, the
+evidence is the absence of any grant, which is a fact about the
+receipt alone, not a structured mismatch between two artifacts. This
+case is better handled by the resolution layer directly inspecting
+the receipt.
+
+### 5.2 Extensibility
 
 The registry is extensible. An unrecognized reason code MUST NOT cause
 a resolver to reject the evidence — the delta entries are
 self-describing and a resolver can verify the mismatch mechanically
-regardless of the reason label.
+regardless of the reason label. A future extension that adds
+machine-readable category or purchase-description fields to receipts
+could re-introduce a `category-mismatch` code.
 
-## 5. Verification checklist
+## 6. Verification checklist
 
 A resolver verifies dispute evidence in five steps. A failure at any
 step MUST cause rejection.
@@ -182,10 +256,14 @@ step MUST cause rejection.
    a. Extract the field named by `field` from the embedded grant.
    b. Extract the corresponding value from the embedded receipt (or
       the payment request embedded in the receipt).
-   c. Verify the `authorized` and `actual` values match what was
-      extracted.
-   d. Verify the mismatch is real — `authorized` and `actual` differ
-      in a way consistent with the stated `reason`.
+   c. Verify the `authorized` value equals the extracted grant value,
+      and the `actual` value equals the extracted receipt value. If
+      either differs, reject.
+   d. Verify `authorized` ≠ `actual`. If they are equal, there is no
+      mismatch and the resolver MUST reject.
+   e. For numeric fields (amounts): verify `actual` exceeds
+      `authorized`. For string fields (audience, scope): verify
+      `actual` is not a member of the set `authorized` describes.
 
 ### Step 5: Temporal ordering
 
@@ -198,7 +276,7 @@ step MUST cause rejection.
 4. The dispute's `iat` MUST follow the receipt's `iat` (you cannot
    dispute a payment before it happens).
 
-## 6. Artifact type registration
+## 7. Artifact type registration
 
 This extension registers one artifact type in core's Section 9 table:
 
@@ -206,7 +284,7 @@ This extension registers one artifact type in core's Section 9 table:
 |---|---|---|
 | `dispute+jwt` | ext-disputes | Dispute evidence binding a grant to a receipt with a structured delta. |
 
-## 7. Relationship to offer retention
+## 8. Relationship to offer retention
 
 Pay core's open decision #2 asks whether buyers should retain offers
 (payment requests). This extension strengthens the case for retention:
@@ -223,14 +301,14 @@ The grant, conversely, is the disputant's own artifact. If the
 disputant discards it, they have discarded their own evidence. The
 protocol does not attempt to recover from this.
 
-## 8. Security considerations
+## 9. Security considerations
 
 **Fabricated disputes.** A dishonest disputant could forge a grant
 with narrower constraints than the one actually issued, producing a
 delta that looks like a violation. Defense: the receipt's `ack.grant`
 is an artifact reference (SHA-256) that binds to a specific grant by
 content. A forged grant will not match the reference, and the resolver
-rejects at Step 3.4.
+rejects at verification Step 3.4.
 
 **Collusion.** If the agent and disputant collude, they can produce
 a valid dispute for a payment the disputant actually authorized.
@@ -256,7 +334,7 @@ grant time (or the grant's `kid`), and the dispute's signature is
 verified against the disputant's current key. The two verifications
 are independent.
 
-## 9. Open decisions
+## 10. Open decisions
 
 1. **Should dispute evidence carry a `crit` claim?** If a future
    extension adds claims that change the meaning of a dispute,

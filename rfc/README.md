@@ -43,7 +43,8 @@ walk without callbacks to either side.
 
 | Section | Location |
 |---|---|
-| Dispute evidence artifact, reason codes, verification checklist | [ext-disputes.md](ext-disputes.md) |
+| Evidence trail, artifact, reason codes, verification checklist | [ext-disputes.md](ext-disputes.md) |
+| Working example (jose) | [example.ts](example.ts) |
 
 ## Settled decisions
 
@@ -73,7 +74,13 @@ walk without callbacks to either side.
    reason code alone is never sufficient evidence; the delta must
    always be present and verifiable.
 
-6. **Evidence expires.** 90-day SHOULD, matching common chargeback
+6. **Only mechanically verifiable mismatches.** Category mismatch and
+   "no grant" were deliberately excluded from the reason code
+   registry — neither can be verified by comparing grant fields to
+   receipt fields. The cost: some real disputes can't be expressed
+   as machine-readable evidence and need human arbitration.
+
+7. **Evidence expires.** 90-day SHOULD, matching common chargeback
    windows. The cost: legitimate disputes filed after 90 days are
    unverifiable by compliant resolvers.
 
@@ -88,7 +95,7 @@ Both are proposed in [RFC: ACK-ID + ACK-Pay v2](https://github.com/agentcommerce
 
 ## Open questions for reviewers
 
-- Should the offer-retention recommendation (Section 7) be a MUST?
+- Should the offer-retention recommendation (Section 8) be a MUST?
   That strengthens dispute evidence but increases storage requirements
   for agents.
 - Is 90 days the right evidence expiry window for agent commerce, or
