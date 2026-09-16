@@ -16,6 +16,8 @@ and what happened. What's missing is a machine-readable format for the
 mismatch between them — and a verification path that a third party can
 walk without callbacks to either side.
 
+<img alt="dispute-concept" src="dispute-concept.svg" />
+
 ## Design guidelines
 
 1. **Layer, don't fork.** Dispute evidence is an extension artifact

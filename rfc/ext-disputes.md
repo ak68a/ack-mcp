@@ -57,34 +57,10 @@ re-issuance mechanism.
 ## 3. Evidence trail
 
 The dispute evidence artifact binds three signed objects into one
-verifiable chain. A resolver walks the chain left to right; each
-arrow is a cryptographic binding (signature or artifact reference):
+verifiable chain. A resolver walks the chain right to left; every
+arrow is a cryptographic binding (signature or artifact reference).
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    dispute+jwt                               │
-│  signed by: disputant (owner)                                │
-│                                                              │
-│  ┌─────────────┐   grant_ref    ┌─────────────┐             │
-│  │  grant+jwt   │◄──(SHA-256)───│  ack.grant   │            │
-│  │              │               │  in receipt   │            │
-│  │  iss: owner  │               │              ┌┘            │
-│  │  sub: agent  │               │  receipt+jwt  │            │
-│  │  constraints │               │              ┌┘            │
-│  │  aud, scope  │               │  amount      │             │
-│  │  exp         │               │  recipient   │             │
-│  └──────────────┘               │  ack.agent   │             │
-│                                 └──────────────┘             │
-│         ▲                              ▲                     │
-│         │                              │                     │
-│     ┌───┴───────────────────────┴──┐                         │
-│     │         delta[]              │                         │
-│     │  field: constraints.maxAmount│                         │
-│     │  authorized: "10000"  ◄─grant│                         │
-│     │  actual:     "45000"  ◄─receipt                        │
-│     └──────────────────────────────┘                         │
-└──────────────────────────────────────────────────────────────┘
-```
+<img alt="verification-trail" src="verification-trail.svg" />
 
 The `grant_ref` binds by content (SHA-256 of the grant's compact
 serialization, matching the receipt's `ack.grant`). The `receipt_ref`
