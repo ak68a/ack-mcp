@@ -11,7 +11,6 @@
  */
 import {
   calculateJwkThumbprint,
-  CompactSign,
   exportJWK,
   generateKeyPair,
   jwtVerify,

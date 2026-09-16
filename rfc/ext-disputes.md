@@ -110,14 +110,14 @@ convention for artifact-typed JWTs). The payload carries:
 
 The example is non-normative. The normative claim table follows.
 
-### 3.1 Header
+### 4.1 Header
 
 | Parameter | Requiredness | Rule |
 |---|---|---|
 | `typ` | REQUIRED | MUST be `dispute+jwt`. |
 | `kid` | REQUIRED | The disputant's key thumbprint (JWK Thumbprint, RFC 7638). |
 
-### 3.2 Payload claims
+### 4.2 Payload claims
 
 | Claim | Requiredness | Rule |
 |---|---|---|
@@ -131,7 +131,7 @@ The example is non-normative. The normative claim table follows.
 | `receipt_ref` | REQUIRED | Artifact reference to the receipt: SHA-256 of the receipt JWS compact serialization, base64url-encoded. |
 | `evidence` | REQUIRED | Object containing `grant`, `receipt`, and `delta` (Section 4.3). |
 
-### 3.3 Evidence object
+### 4.3 Evidence object
 
 | Field | Requiredness | Rule |
 |---|---|---|
@@ -139,14 +139,14 @@ The example is non-normative. The normative claim table follows.
 | `evidence.receipt` | REQUIRED | The full receipt JWS compact serialization. Its SHA-256 MUST match `receipt_ref`. |
 | `evidence.delta` | REQUIRED | Array of one or more delta entries (Section 4.4). |
 
-### 3.4 Delta entries
+### 4.4 Delta entries
 
 Each delta entry describes one constraint violation:
 
 | Field | Requiredness | Rule |
 |---|---|---|
 | `field` | REQUIRED | Dot-path into the grant's claims identifying the violated constraint (e.g. `constraints.maxAmount`, `aud`, `exp`, `scope`). |
-| `authorized` | OPTIONAL | The value from the grant. MUST be present when the grant contained the field. Omitted only for `no-grant` reason. |
+| `authorized` | REQUIRED | The value from the grant for the field named by `field`. |
 | `actual` | REQUIRED | The corresponding value from the receipt or the payment request embedded in the receipt. |
 | `currency` | OPTIONAL | Present when `field` references an amount, to make the delta self-contained. |
 
@@ -164,7 +164,6 @@ resolver MUST reject the entire artifact.
 | `grant-expired` | The grant's `exp` had passed at the time the receipt was issued. | `field` = `exp`, `authorized` = grant `exp`, `actual` = receipt `iat`. |
 | `audience-mismatch` | The payment went to a counterparty not named in the grant's `aud`. | `field` = `aud`, `authorized` = grant `aud`, `actual` = receipt recipient. |
 | `unauthorized-agent` | The receipt's `ack.agent` names an agent the disputant did not grant. The disputant MUST embed a valid grant they did issue (to prove they are the owner) and the receipt that names the wrong agent. | `field` = `sub`, `authorized` = grant `sub`, `actual` = receipt `ack.agent`. |
-| `revoked-grant` | The grant was revoked (key removal, `jti` revocation) before the payment. | `field` = `jti` or key reference, `authorized` = revocation timestamp, `actual` = receipt `iat`. |
 
 ### 5.1 Codes intentionally omitted
 
@@ -174,6 +173,15 @@ removed because the receipt does not carry a category field — the
 resolver cannot mechanically verify what category a purchase belongs
 to. Category disputes require human judgment and belong in the
 resolution layer, not in machine-verifiable evidence.
+
+**Revoked grant.** An earlier draft included `revoked-grant` for
+grants revoked via key removal or `jti` blocklisting before the
+payment. This was removed because revocation is an external event,
+not a grant claim — the revocation timestamp exists outside the
+grant and receipt, so a resolver would need to query external state,
+breaking the "self-contained, no callbacks" property. A future
+extension that adds a signed revocation receipt could re-introduce
+this code with a verifiable evidence path.
 
 **No grant.** An earlier draft included `no-grant` for receipts where
 `ack.grant` is absent. This was removed because without an `ack`
@@ -236,10 +244,9 @@ step MUST cause rejection.
       and the `actual` value equals the extracted receipt value. If
       either differs, reject.
    d. Verify `authorized` ≠ `actual`. If they are equal, there is no
-      mismatch and the resolver MUST reject.
-   e. For numeric fields (amounts): verify `actual` exceeds
-      `authorized`. For string fields (audience, scope): verify
-      `actual` is not a member of the set `authorized` describes.
+      mismatch and the resolver MUST reject. The reason code tells
+      a human what kind of mismatch it is; the resolver's job is
+      only to confirm the values differ.
 
 ### Step 5: Temporal ordering
 
@@ -268,7 +275,7 @@ Pay core's open decision #2 asks whether buyers should retain offers
 - The receipt embeds the payment request token. A resolver extracts
   the payment amount, currency, and recipient from it.
 - Without the embedded payment request, a resolver cannot verify
-  amount-based deltas (`scope-exceeded`, `category-mismatch`).
+  amount-based deltas (`scope-exceeded`).
 - This extension therefore RECOMMENDS that agents retain the full
   receipt (which embeds the payment request) for the duration of
   the dispute window.
