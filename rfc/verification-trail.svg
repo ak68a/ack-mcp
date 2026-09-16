@@ -21,7 +21,7 @@
       <rect width="1100" height="440" rx="12" fill="#ffffff" stroke="#e8e6e1" stroke-width="1"/>
 
       <!-- Title -->
-      <text x="48" y="40" class="d2-title">Verification trail</text>
+      <text x="48" y="40" class="d2-title">Evidence trail</text>
       <text x="48" y="60" class="d2-sub">A resolver walks the chain right to left. Every binding is cryptographic; no callbacks needed.</text>
 
       <!-- ── RECEIPT ── -->
